@@ -1,12 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import fetch from "node-fetch";
 import fs from "fs";
 import ffmpeg from "fluent-ffmpeg";
-import { createWriteStream } from "fs";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import mammoth from "mammoth";
 
-// Fetch file and save to temporary path
 export async function fetchFileToTemp(url, tempPath) {
   console.log("Fetching file:", url);
   try {
@@ -17,14 +14,12 @@ export async function fetchFileToTemp(url, tempPath) {
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    await new Promise((resolve, reject) => {
-      const stream = createWriteStream(tempPath);
-      stream.write(buffer);
-      stream.end();
-      stream.on("finish", resolve);
-      stream.on("error", reject);
+    // Ensure the /tmp directory is writable in serverless environments
+    await fs.promises.mkdir("/tmp", { recursive: true }).catch((err) => {
+      if (err.code !== "EEXIST") throw err;
     });
 
+    await fs.promises.writeFile(tempPath, buffer);
     return buffer;
   } catch (error) {
     console.error("Fetch File Error:", error.message);
@@ -32,7 +27,6 @@ export async function fetchFileToTemp(url, tempPath) {
   }
 }
 
-// Convert WebM to FLAC (local development only)
 export async function convertWebmToFlac(inputPath, outputPath) {
   console.log("Converting WebM to FLAC:", inputPath);
   return new Promise((resolve, reject) => {
@@ -52,18 +46,14 @@ export async function convertWebmToFlac(inputPath, outputPath) {
   });
 }
 
-// Extract text from PDF with timeout
 export async function extractTextFromPDF(filePath) {
   console.log("Extracting text from PDF:", filePath);
-
-  // Create a promise with a timeout
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => {
       reject(new Error("PDF extraction timed out after 10 seconds."));
     }, 10000);
   });
 
-  // Create the PDF parsing promise
   const parsePromise = new Promise((resolve, reject) => {
     try {
       const loader = new PDFLoader(filePath);
@@ -97,7 +87,6 @@ export async function extractTextFromPDF(filePath) {
   });
 
   try {
-    // Race the parsing promise against the timeout
     const text = await Promise.race([parsePromise, timeoutPromise]);
     return text;
   } catch (error) {
@@ -106,18 +95,14 @@ export async function extractTextFromPDF(filePath) {
   }
 }
 
-// Extract text from DOCX with timeout
 export async function extractTextFromDocx(buffer) {
   console.log("Extracting text from DOCX...");
-
-  // Create a promise with a timeout
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => {
       reject(new Error("DOCX extraction timed out after 10 seconds."));
     }, 10000);
   });
 
-  // Create the DOCX parsing promise
   const parsePromise = new Promise((resolve, reject) => {
     try {
       mammoth
@@ -143,7 +128,6 @@ export async function extractTextFromDocx(buffer) {
   });
 
   try {
-    // Race the parsing promise against the timeout
     const text = await Promise.race([parsePromise, timeoutPromise]);
     return text;
   } catch (error) {
@@ -152,7 +136,6 @@ export async function extractTextFromDocx(buffer) {
   }
 }
 
-// Transcribe audio using AssemblyAI
 export async function transcribeAudio(filePath, assemblyAI) {
   console.log("Transcribing audio with AssemblyAI...");
   try {
@@ -179,7 +162,6 @@ export async function transcribeAudio(filePath, assemblyAI) {
   }
 }
 
-// Get response from Gemini AI
 export async function getGeminiCompletion(messageHistory, model) {
   console.log("Preparing Gemini prompt...");
   try {
@@ -205,7 +187,6 @@ export async function getGeminiCompletion(messageHistory, model) {
   }
 }
 
-// Send message to TalkJS
 export async function sendTalkJSMessage(
   conversationId,
   text,

@@ -74,8 +74,8 @@ export default function TalkJSComponent() {
       try {
         const me = new window.Talk.User({
           id: "chatbotUser",
-          name: "Ammad",
-          email: "ammadrana863@gmail.com",
+          name: "User",
+          email: "user@gmail.com",
           role: "default",
           photoUrl: "/User.jpg",
         });
