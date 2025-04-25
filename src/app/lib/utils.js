@@ -4,7 +4,7 @@ import ffmpeg from "fluent-ffmpeg";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import mammoth from "mammoth";
 
-export async function fetchFileToTemp(url, tempPath) {
+export async function fetchFileToTemp(url, tempPath = null) {
   console.log("Fetching file:", url);
   try {
     const response = await fetch(url);
@@ -14,12 +14,13 @@ export async function fetchFileToTemp(url, tempPath) {
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Ensure the /tmp directory is writable in serverless environments
-    await fs.promises.mkdir("/tmp", { recursive: true }).catch((err) => {
-      if (err.code !== "EEXIST") throw err;
-    });
+    if (tempPath) {
+      await fs.promises.mkdir("/tmp", { recursive: true }).catch((err) => {
+        if (err.code !== "EEXIST") throw err;
+      });
+      await fs.promises.writeFile(tempPath, buffer);
+    }
 
-    await fs.promises.writeFile(tempPath, buffer);
     return buffer;
   } catch (error) {
     console.error("Fetch File Error:", error.message);
@@ -99,12 +100,13 @@ export async function extractTextFromDocx(buffer) {
   console.log("Extracting text from DOCX...");
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => {
-      reject(new Error("DOCX extraction timed out after 10 seconds."));
-    }, 10000);
+      reject(new Error("DOCX extraction timed out after 5 seconds."));
+    }, 5000);
   });
 
   const parsePromise = new Promise((resolve, reject) => {
     try {
+      console.log("Buffer length:", buffer.length);
       mammoth
         .extractRawText({ buffer })
         .then((result) => {
@@ -120,9 +122,15 @@ export async function extractTextFromDocx(buffer) {
           }
         })
         .catch((err) => {
+          console.error("DOCX parsing error:", err.message, err.stack);
           reject(new Error(`DOCX parsing error: ${err.message}`));
         });
     } catch (error) {
+      console.error(
+        "DOCX parser initialization error:",
+        error.message,
+        error.stack
+      );
       reject(new Error(`Failed to initialize DOCX parser: ${error.message}`));
     }
   });

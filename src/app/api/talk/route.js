@@ -17,7 +17,6 @@ import {
   sendTalkJSMessage,
 } from "../../lib/utils";
 
-// Set FFmpeg path (local development only; remove for Vercel)
 if (process.env.NODE_ENV === "development") {
   try {
     ffmpeg.setFfmpegPath(
@@ -29,13 +28,11 @@ if (process.env.NODE_ENV === "development") {
   }
 }
 
-// Environment variables
 const appId = process.env.TALKJS_APP_ID || "tess1K7E";
 const talkJSSecretKey = process.env.TALKJS_SECRET_KEY;
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const assemblyAIApiKey = process.env.ASSEMBLYAI_API_KEY;
 
-// Log environment variables for debugging
 console.log("Environment variables loaded:", {
   appId,
   talkJSSecretKey: talkJSSecretKey ? "Set" : "Missing",
@@ -47,16 +44,14 @@ if (!talkJSSecretKey || !geminiApiKey || !assemblyAIApiKey) {
   throw new Error("Missing required environment variables.");
 }
 
-// Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(geminiApiKey);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-// Initialize AssemblyAI
 const assemblyAI = new AssemblyAI({ apiKey: assemblyAIApiKey });
 
 const botId = "chatbotExampleBot";
 const allMessageHistory = {};
-const processedMessageIds = new Set();
+const processedMessageKeys = new Set();
 
 export async function POST(req) {
   console.log(`[${new Date().toISOString()}] POST /api/talk`);
@@ -88,11 +83,13 @@ export async function POST(req) {
       );
     }
 
-    if (processedMessageIds.has(messageId)) {
-      console.log(`Skipping duplicate message ID: ${messageId}`);
+    // Use a composite key to check for duplicates: conversationId:messageId
+    const messageKey = `${convId}:${messageId}`;
+    if (processedMessageKeys.has(messageKey)) {
+      console.log(`Skipping duplicate message: ${messageKey}`);
       return NextResponse.json({}, { status: 200 });
     }
-    processedMessageIds.add(messageId);
+    processedMessageKeys.add(messageKey);
 
     if (!(convId in allMessageHistory)) {
       allMessageHistory[convId] = [
@@ -146,19 +143,24 @@ export async function POST(req) {
         filename = url.split("/").pop().split("?")[0] || "document";
       }
 
-      const tempInputPath = path.join(
-        process.cwd(),
-        "tmp",
-        `${filename}_${Date.now()}.${
-          mimeType.includes("webm")
-            ? "webm"
-            : mimeType.includes("docx")
-            ? "docx"
-            : "file"
-        }`
-      );
-      await fs.promises.mkdir(path.dirname(tempInputPath), { recursive: true });
-      const buffer = await fetchFileToTemp(url, tempInputPath);
+      let buffer;
+      let tempInputPath;
+
+      if (mimeType === "application/pdf" || mimeType === "audio/webm") {
+        tempInputPath = path.join(
+          process.cwd(),
+          "tmp",
+          `${filename}_${Date.now()}.${
+            mimeType.includes("webm") ? "webm" : "pdf"
+          }`
+        );
+        await fs.promises.mkdir(path.dirname(tempInputPath), {
+          recursive: true,
+        });
+        buffer = await fetchFileToTemp(url, tempInputPath);
+      } else {
+        buffer = await fetchFileToTemp(url);
+      }
 
       if (mimeType === "audio/webm") {
         try {
@@ -224,13 +226,7 @@ export async function POST(req) {
       ) {
         try {
           additionalContent = await extractTextFromDocx(buffer);
-          unlink(tempInputPath, (err) => {
-            if (err) console.error("Failed to delete tempInputPath:", err);
-          });
         } catch (error) {
-          unlink(tempInputPath, (err) => {
-            if (err) console.error("Failed to delete tempInputPath:", err);
-          });
           await sendTalkJSMessage(
             convId,
             "Sorry, I couldn't extract text from the DOCX. Please try again or send a text message.",
@@ -241,9 +237,11 @@ export async function POST(req) {
           return NextResponse.json({}, { status: 200 });
         }
       } else {
-        unlink(tempInputPath, (err) => {
-          if (err) console.error("Failed to delete tempInputPath:", err);
-        });
+        if (tempInputPath) {
+          unlink(tempInputPath, (err) => {
+            if (err) console.error("Failed to delete tempInputPath:", err);
+          });
+        }
         await sendTalkJSMessage(
           convId,
           "Sorry, I can only process audio, PDF, and DOCX files.",
