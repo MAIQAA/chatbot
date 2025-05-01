@@ -320,7 +320,7 @@ export default function ChatbotComponent() {
   };
 
   return (
-    <div className="max-w-md mx-auto bg-white dark:bg-zinc-800 shadow-lg rounded-xl overflow-hidden transform transition-all duration-300 hover:shadow-2xl">
+    <div className="max-w-md mx-auto bg-white dark:bg-zinc-800 shadow-xl rounded-xl overflow-hidden transform transition-all duration-300 hover:shadow-2xl">
       {/* Header */}
       <div className="px-4 py-3 border-b dark:border-zinc-700 bg-blue-500 text-white">
         <div className="flex justify-between items-center">
