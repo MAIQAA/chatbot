@@ -1,13 +1,17 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import fetch from "node-fetch";
 import fs from "fs";
 import ffmpeg from "fluent-ffmpeg";
 // import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import mammoth from "mammoth";
 import { AssemblyAI } from "assemblyai";
-import { Readable } from 'stream';
-import pdfParse from 'pdf-parse';
+import { Readable } from "stream";
+import PDFParser from "pdf2json";
 
-export async function fetchFileToTemp(url: string, tempPath: string | null = null) {
+export async function fetchFileToTemp(
+  url: string,
+  tempPath: string | null = null
+) {
   console.log("Fetching file:", url);
   try {
     const response = await fetch(url);
@@ -50,7 +54,6 @@ export async function fetchFileToTemp(url: string, tempPath: string | null = nul
 //   });
 // }
 
-
 export async function convertWebmToFlac(webmBuffer: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -77,18 +80,26 @@ export async function convertWebmToFlac(webmBuffer: Buffer): Promise<Buffer> {
   });
 }
 
-
-
 export async function extractTextFromPDF(pdfBuffer: Buffer): Promise<string> {
-  try {
-    const data = await pdfParse(pdfBuffer, { max: 1000 }); // Limit pages to avoid crashes
-    if (!data.text || data.text.trim() === "") {
-      throw new Error("No text extracted from PDF - it might be scanned or empty.");
-    }
-    return data.text;
-  } catch (error) {
-    throw new Error(`PDF parsing failed: ${(error as Error).message}`);
-  }
+  const pdfParser = new PDFParser();
+  return new Promise((resolve, reject) => {
+    pdfParser.on("pdfParser_dataError", (errData: Record<"parserError", Error>) =>
+      reject(errData.parserError)
+    );
+    pdfParser.on("pdfParser_dataReady", (pdfData) => {
+      const text = pdfParser.getRawTextContent();
+      if (!text || text.trim() === "") {
+        reject(
+          new Error(
+            "No text extracted from PDF - it might be scanned or empty."
+          )
+        );
+      } else {
+        resolve(text);
+      }
+    });
+    pdfParser.parseBuffer(pdfBuffer);
+  });
 }
 
 export async function extractTextFromDocx(buffer: Buffer) {
@@ -126,7 +137,11 @@ export async function extractTextFromDocx(buffer: Buffer) {
         (error as Error).message,
         (error as Error).stack
       );
-      reject(new Error(`Failed to initialize DOCX parser: ${(error as Error).message}`));
+      reject(
+        new Error(
+          `Failed to initialize DOCX parser: ${(error as Error).message}`
+        )
+      );
     }
   });
 
@@ -141,11 +156,12 @@ export async function extractTextFromDocx(buffer: Buffer) {
   }
 }
 
-
-
-export async function transcribeAudio(flacBuffer: Buffer, assemblyAI: AssemblyAI): Promise<string> {
+export async function transcribeAudio(
+  flacBuffer: Buffer,
+  assemblyAI: AssemblyAI
+): Promise<string> {
   try {
-    const base64Audio = flacBuffer.toString('base64');
+    const base64Audio = flacBuffer.toString("base64");
     const transcription = await assemblyAI.transcripts.transcribe({
       audio: `data:audio/flac;base64,${base64Audio}`,
     });
@@ -158,7 +174,15 @@ export async function transcribeAudio(flacBuffer: Buffer, assemblyAI: AssemblyAI
   }
 }
 
-export async function getGeminiCompletion(messageHistory: { role: string; content: string; }[], model: { generateContent: (params: { contents: { role: string; parts: { text: string; }[]; }[]; generationConfig: { maxOutputTokens: number; temperature: number; }; }) => Promise<{ response: { text: () => string; }; }>; }) {
+export async function getGeminiCompletion(
+  messageHistory: { role: string; content: string }[],
+  model: {
+    generateContent: (params: {
+      contents: { role: string; parts: { text: string }[] }[];
+      generationConfig: { maxOutputTokens: number; temperature: number };
+    }) => Promise<{ response: { text: () => string } }>;
+  }
+) {
   console.log("Preparing Gemini prompt...");
   try {
     const prompt = messageHistory
