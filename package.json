@@ -27,6 +27,7 @@
     "pdf2json": "^3.1.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "stream": "^0.0.3",
     "talkjs": "^0.37.0"
   },
   "devDependencies": {
@@ -34,6 +35,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/fluent-ffmpeg": "^2.1.27",
     "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

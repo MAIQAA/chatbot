@@ -150,7 +150,12 @@ export async function POST(req: Request) {
       ) {
         try {
           console.log("Starting DOCX text extraction...");
-          additionalContent = await extractTextFromDocx(buffer);
+          const extractedContent = await extractTextFromDocx(buffer);
+          if (typeof extractedContent === "string" || extractedContent === null) {
+            additionalContent = extractedContent;
+          } else {
+            throw new Error("Extracted content is not of type 'string | null'.");
+          }
           if (additionalContent) {
             console.log(
               `Successfully extracted text from DOCX: ${additionalContent.slice(
