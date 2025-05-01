@@ -9,7 +9,7 @@ const Chatbot = dynamic(() => Promise.resolve(ChatbotComponent), {
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-gradient-to-b from-gray-50 to-white flex items-center justify-center">
+    <main className="min-h-screen bg-gradient-to-b from-gray-100 to-white flex items-center justify-center">
       <Chatbot />
     </main>
   );
