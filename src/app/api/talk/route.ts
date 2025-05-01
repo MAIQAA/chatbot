@@ -14,10 +14,11 @@ import {
 // Set FFmpeg path for all environments
 if (ffmpegStatic) {
   ffmpeg.setFfmpegPath(ffmpegStatic);
+  console.log("FFmpeg path set to:", ffmpegStatic);
 } else {
+  console.error("FFmpeg static path is not set.");
   throw new Error("FFmpeg static path is not set.");
 }
-console.log("FFmpeg path set to:", ffmpegStatic);
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const assemblyAIApiKey = process.env.ASSEMBLYAI_API_KEY;
@@ -97,21 +98,10 @@ export async function POST(req: Request) {
 
       if (mimeType === "audio/webm") {
         try {
-          console.log("Starting webm to flac conversion...");
           const flacBuffer = await convertWebmToFlac(buffer);
-          console.log(
-            "Conversion successful, flacBuffer size:",
-            flacBuffer.length
-          );
-          console.log("Starting audio transcription...");
           additionalContent = await transcribeAudio(flacBuffer, assemblyAI);
-          console.log("Transcription result:", additionalContent);
         } catch (error) {
-          console.error(
-            "Audio processing error:",
-            (error as Error).message,
-            (error as Error).stack
-          );
+          console.error("Audio processing error:", (error as Error).message);
           return NextResponse.json(
             {
               error:
@@ -123,18 +113,9 @@ export async function POST(req: Request) {
         }
       } else if (mimeType === "application/pdf") {
         try {
-          console.log("Starting PDF text extraction...");
           additionalContent = await extractTextFromPDF(buffer);
-          console.log(
-            "PDF extraction result:",
-            (additionalContent ? additionalContent.slice(0, 50) : "") + "..."
-          );
         } catch (error) {
-          console.error(
-            "PDF extraction error:",
-            (error as Error).message,
-            (error as Error).stack
-          );
+          console.error("PDF extraction error:", (error as Error).message);
           return NextResponse.json(
             {
               error:
@@ -148,34 +129,9 @@ export async function POST(req: Request) {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       ) {
         try {
-          console.log("Starting DOCX text extraction...");
-          const extractedContent = await extractTextFromDocx(buffer);
-          if (
-            typeof extractedContent === "string" ||
-            extractedContent === null
-          ) {
-            additionalContent = extractedContent;
-          } else {
-            throw new Error(
-              "Extracted content is not of type 'string | null'."
-            );
-          }
-          if (additionalContent) {
-            console.log(
-              `Successfully extracted text from DOCX: ${additionalContent.slice(
-                0,
-                50
-              )}...`
-            );
-          } else {
-            console.error("No content extracted from DOCX.");
-          }
+          additionalContent = await extractTextFromDocx(buffer);
         } catch (error) {
-          console.error(
-            "DOCX extraction error:",
-            (error as Error).message,
-            (error as Error).stack
-          );
+          console.error("DOCX extraction error:", (error as Error).message);
           return NextResponse.json(
             {
               error:
@@ -197,20 +153,13 @@ export async function POST(req: Request) {
           ? `${prompt}\n\n${additionalContent}`
           : additionalContent;
         messageHistory.push({ role: "user", content: fullPrompt });
-        console.log(
-          "Sending to Gemini with prompt:",
-          fullPrompt.slice(0, 50) + "..."
-        );
         const reply = await getGeminiCompletion(messageHistory, model);
-        console.log("Gemini reply:", reply);
         messageHistory.push({ role: "assistant", content: reply });
         return NextResponse.json({ reply }, { status: 200 });
       }
     } else if (text) {
       messageHistory.push({ role: "user", content: text });
-      console.log("Sending text to Gemini:", text);
       const reply = await getGeminiCompletion(messageHistory, model);
-      console.log("Gemini reply:", reply);
       messageHistory.push({ role: "assistant", content: reply });
       return NextResponse.json({ reply }, { status: 200 });
     } else {
@@ -221,11 +170,7 @@ export async function POST(req: Request) {
       );
     }
   } catch (error) {
-    console.error(
-      "Error in /api/talk:",
-      (error as Error).message,
-      (error as Error).stack
-    );
+    console.error("Error in /api/talk:", (error as Error).message);
     return NextResponse.json(
       { error: "Internal server error: " + (error as Error).message },
       { status: 500 }
