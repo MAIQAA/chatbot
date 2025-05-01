@@ -1,9 +1,14 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { NextResponse } from "next/server";
+import fetch from "node-fetch";
+import fs from "fs";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import ffmpeg from "fluent-ffmpeg";
-import ffmpegStatic from "ffmpeg-static";
+import { unlink } from "fs";
+import path from "path";
 import { AssemblyAI } from "assemblyai";
 import {
+  fetchFileToTemp,
   convertWebmToFlac,
   extractTextFromPDF,
   extractTextFromDocx,
@@ -11,13 +16,15 @@ import {
   getGeminiCompletion,
 } from "../../lib/utils";
 
-// Set FFmpeg path for all environments
-if (ffmpegStatic) {
-  ffmpeg.setFfmpegPath(ffmpegStatic);
-  console.log("FFmpeg path set to:", ffmpegStatic);
-} else {
-  console.error("FFmpeg static path is not set.");
-  throw new Error("FFmpeg static path is not set.");
+if (process.env.NODE_ENV === "development") {
+  try {
+    ffmpeg.setFfmpegPath(
+      "C:\\Users\\ammad\\AppData\\Local\\ffmpeg\\bin\\ffmpeg.exe"
+    );
+    console.log("FFmpeg path set successfully for local development.");
+  } catch (error) {
+    console.error("Failed to set FFmpeg path:", (error as Error).message);
+  }
 }
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -29,9 +36,6 @@ console.log("Environment variables loaded:", {
 });
 
 if (!geminiApiKey || !assemblyAIApiKey) {
-  console.error(
-    "Missing API keys - GEMINI_API_KEY or ASSEMBLYAI_API_KEY not set."
-  );
   throw new Error("Missing required environment variables.");
 }
 
@@ -57,7 +61,7 @@ export async function POST(req: Request) {
     if (contentType?.includes("multipart/form-data")) {
       const formData = await req.formData();
       attachment = formData.get("attachment") as File;
-      prompt = (formData.get("prompt") as string) || null;
+      prompt = (formData.get("prompt") as string) || null; // Get the prompt from formData
     } else {
       body = await req.json();
       text = body?.text?.trim() ?? null;
@@ -92,35 +96,68 @@ export async function POST(req: Request) {
       const mimeType = attachment.type;
       const filename = attachment.name || "attachment";
       const buffer = Buffer.from(await attachment.arrayBuffer());
-      console.log(
-        `Processing attachment: ${filename}, MIME type: ${mimeType}, Buffer size: ${buffer.length} bytes`
-      );
+      let tempInputPath: string | null = null;
+
+      if (mimeType === "application/pdf" || mimeType === "audio/webm") {
+        tempInputPath = path.join(
+          process.cwd(),
+          "tmp",
+          `${filename}_${Date.now()}.${
+            mimeType.includes("webm") ? "webm" : "pdf"
+          }`
+        );
+        await fs.promises.mkdir(path.dirname(tempInputPath), {
+          recursive: true,
+        });
+        await fs.promises.writeFile(tempInputPath, buffer);
+      }
 
       if (mimeType === "audio/webm") {
         try {
-          const flacBuffer = await convertWebmToFlac(buffer);
-          additionalContent = await transcribeAudio(flacBuffer, assemblyAI);
+          const tempOutputPath = path.join(
+            process.cwd(),
+            "tmp",
+            `${filename}_${Date.now()}.flac`
+          );
+          await convertWebmToFlac(tempInputPath!, tempOutputPath);
+          additionalContent = await transcribeAudio(tempOutputPath, assemblyAI);
+
+          unlink(tempInputPath!, (err) => {
+            if (err) console.error("Failed to delete tempInputPath:", err);
+          });
+          unlink(tempOutputPath, (err) => {
+            if (err) console.error("Failed to delete tempOutputPath:", err);
+          });
         } catch (error) {
-          console.error("Audio processing error:", (error as Error).message);
+          unlink(tempInputPath!, (err) => {
+            if (err) console.error("Failed to delete tempInputPath:", err);
+          });
+          if (
+            error instanceof Error &&
+            error.message.includes("Cannot find ffmpeg")
+          ) {
+            return NextResponse.json(
+              { error: "FFmpeg is not installed on the server." },
+              { status: 500 }
+            );
+          }
           return NextResponse.json(
-            {
-              error:
-                "Failed to transcribe voice message: " +
-                (error as Error).message,
-            },
+            { error: "Failed to transcribe voice message." },
             { status: 500 }
           );
         }
       } else if (mimeType === "application/pdf") {
         try {
-          additionalContent = await extractTextFromPDF(buffer);
+          additionalContent = await extractTextFromPDF(tempInputPath!);
+          unlink(tempInputPath!, (err) => {
+            if (err) console.error("Failed to delete tempInputPath:", err);
+          });
         } catch (error) {
-          console.error("PDF extraction error:", (error as Error).message);
+          unlink(tempInputPath!, (err) => {
+            if (err) console.error("Failed to delete tempInputPath:", err);
+          });
           return NextResponse.json(
-            {
-              error:
-                "Failed to extract text from PDF: " + (error as Error).message,
-            },
+            { error: "Failed to extract text from PDF." },
             { status: 500 }
           );
         }
@@ -130,18 +167,28 @@ export async function POST(req: Request) {
       ) {
         try {
           additionalContent = await extractTextFromDocx(buffer);
+          if (additionalContent) {
+            console.log(
+              `Successfully extracted text from DOCX: ${additionalContent.slice(
+                0,
+                50
+              )}...`
+            );
+          } else {
+            console.log("No content extracted from DOCX.");
+          }
         } catch (error) {
-          console.error("DOCX extraction error:", (error as Error).message);
           return NextResponse.json(
-            {
-              error:
-                "Failed to extract text from DOCX: " + (error as Error).message,
-            },
+            { error: "Failed to extract text from DOCX." },
             { status: 500 }
           );
         }
       } else {
-        console.error("Unsupported file type:", mimeType);
+        if (tempInputPath) {
+          unlink(tempInputPath, (err) => {
+            if (err) console.error("Failed to delete tempInputPath:", err);
+          });
+        }
         return NextResponse.json(
           { error: "Only audio, PDF, and DOCX files are supported." },
           { status: 400 }
@@ -170,9 +217,17 @@ export async function POST(req: Request) {
       );
     }
   } catch (error) {
-    console.error("Error in /api/talk:", (error as Error).message);
+    if (error instanceof Error) {
+      console.error("Error:", error.message, error.stack);
+    } else {
+      console.error("Error:", error);
+    }
     return NextResponse.json(
-      { error: "Internal server error: " + (error as Error).message },
+      {
+        error:
+          "Internal server error: " +
+          (error instanceof Error ? error.message : "Unknown error"),
+      },
       { status: 500 }
     );
   }
