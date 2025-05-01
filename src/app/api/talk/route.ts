@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import ffmpeg from "fluent-ffmpeg";
@@ -151,10 +150,15 @@ export async function POST(req: Request) {
         try {
           console.log("Starting DOCX text extraction...");
           const extractedContent = await extractTextFromDocx(buffer);
-          if (typeof extractedContent === "string" || extractedContent === null) {
+          if (
+            typeof extractedContent === "string" ||
+            extractedContent === null
+          ) {
             additionalContent = extractedContent;
           } else {
-            throw new Error("Extracted content is not of type 'string | null'.");
+            throw new Error(
+              "Extracted content is not of type 'string | null'."
+            );
           }
           if (additionalContent) {
             console.log(
