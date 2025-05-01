@@ -180,7 +180,7 @@ export async function getGeminiCompletion(messageHistory, model) {
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
-        maxOutputTokens: 150,
+        maxOutputTokens: 1200, // Approximately 300 words
         temperature: 0.7,
       },
     });
@@ -192,45 +192,5 @@ export async function getGeminiCompletion(messageHistory, model) {
   } catch (error) {
     console.error("Gemini API Error:", error.message);
     return "Sorry, I encountered an error while processing your request.";
-  }
-}
-
-export async function sendTalkJSMessage(
-  conversationId,
-  text,
-  appId,
-  secretKey,
-  senderId
-) {
-  console.log("Sending message to TalkJS:", text);
-  try {
-    const response = await fetch(
-      `https://api.talkjs.com/v1/${appId}/conversations/${conversationId}/messages`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${secretKey}`,
-        },
-        body: JSON.stringify([
-          {
-            text: text,
-            sender: senderId,
-            type: "UserMessage",
-          },
-        ]),
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        `TalkJS API error: ${response.status} ${response.statusText}`
-      );
-    }
-    console.log(`Successfully sent message to TalkJS: ${text}`);
-    return response;
-  } catch (error) {
-    console.error("TalkJS Error:", error.message);
-    throw error;
   }
 }

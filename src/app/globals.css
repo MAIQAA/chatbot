@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 body {
   font-family: Arial, sans-serif;
   margin: 0;
@@ -5,14 +7,33 @@ body {
   background-color: #f5f5f5;
 }
 
-#talkjs-container i,
-#talkjs-container p {
-  display: block;
-  text-align: center;
-  padding: 20px;
-  color: #888;
+#chatDisplay::-webkit-scrollbar {
+  width: 4px;
 }
 
-#talkjs-container p {
-  color: red;
+#chatDisplay::-webkit-scrollbar-thumb {
+  background-color: #5f5f5f;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-in;
+}
+@keyframes waveform {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+.animate-waveform {
+  animation: waveform 2s infinite linear;
 }
