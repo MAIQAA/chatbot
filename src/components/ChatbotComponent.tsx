@@ -194,23 +194,12 @@ export default function ChatbotComponent() {
       }),
     };
     setMessages((prev) => [...prev, newMessage]);
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        content: "Processing your document...",
-        timestamp: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      },
-    ]);
-
-    const formData = new FormData();
-    formData.append("attachment", file);
-    formData.append("prompt", "read this and tell me what it says");
 
     try {
+      const formData = new FormData();
+      formData.append("attachment", file);
+      formData.append("prompt", "read this and tell me what it says");
+
       setIsLoading(true);
       setUploadProgress(0);
 
@@ -237,20 +226,24 @@ export default function ChatbotComponent() {
         xhr.send(formData);
       });
 
-      await responsePromise;
-      setMessages((prev) =>
-        prev.filter((msg) => msg.content !== "Processing your document...")
-      );
-
-      // Send the follow-up prompt to Gemini without displaying it in the UI
-      await fetchGeminiResponse("What does the document say?");
+      const data = await responsePromise;
+      if ((data as { reply?: string }).reply) {
+        const botMessage: Message = {
+          role: "assistant",
+          content: (data as { reply: string }).reply,
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        };
+        setMessages((prev) => [...prev, botMessage]);
+      } else {
+        throw new Error("No reply received from server.");
+      }
     } catch (err) {
       setError(
         "Error processing document: " +
           (err instanceof Error ? err.message : "Unknown error")
-      );
-      setMessages((prev) =>
-        prev.filter((msg) => msg.content !== "Processing your document...")
       );
     } finally {
       setIsLoading(false);
@@ -259,7 +252,7 @@ export default function ChatbotComponent() {
     }
   };
 
-  // Fetch Gemini response
+  // Fetch Gemini response for text input
   const fetchGeminiResponse = async (content: string) => {
     try {
       setIsLoading(true);
@@ -268,8 +261,13 @@ export default function ChatbotComponent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: content }),
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+
       const data = await response.json();
-      console.log("Gemini response from /api/talk:", data); // Debug log
+      console.log("Gemini response from /api/talk:", data);
       if (data.reply) {
         const botMessage: Message = {
           role: "assistant",
@@ -284,7 +282,10 @@ export default function ChatbotComponent() {
         setError("Failed to get response from Gemini.");
       }
     } catch (err) {
-      setError("Error communicating with the server.");
+      setError(
+        "Error communicating with the server: " + (err as Error).message
+      );
+      console.error("Fetch error:", err);
     } finally {
       setIsLoading(false);
     }

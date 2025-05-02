@@ -1,14 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { NextResponse } from "next/server";
-import fetch from "node-fetch";
-import fs from "fs";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import ffmpeg from "fluent-ffmpeg";
-import { unlink } from "fs";
-import path from "path";
+import ffmpegStatic from "ffmpeg-static";
 import { AssemblyAI } from "assemblyai";
 import {
-  fetchFileToTemp,
   convertWebmToFlac,
   extractTextFromPDF,
   extractTextFromDocx,
@@ -16,14 +11,31 @@ import {
   getGeminiCompletion,
 } from "../../lib/utils";
 
+// Set FFmpeg path based on environment
 if (process.env.NODE_ENV === "development") {
   try {
-    ffmpeg.setFfmpegPath(
-      "C:\\Users\\ammad\\AppData\\Local\\ffmpeg\\bin\\ffmpeg.exe"
+    const localFfmpegPath =
+      "C:\\Users\\ammad\\AppData\\Local\\ffmpeg\\bin\\ffmpeg.exe";
+    ffmpeg.setFfmpegPath(localFfmpegPath); // Corrected method name
+    console.log(
+      "FFmpeg path set to local path for development:",
+      localFfmpegPath
     );
-    console.log("FFmpeg path set successfully for local development.");
   } catch (error) {
-    console.error("Failed to set FFmpeg path:", (error as Error).message);
+    console.error(
+      "Failed to set local FFmpeg path:",
+      (error as Error).message,
+      error instanceof Error ? error.stack : "No stack trace available"
+    );
+    throw new Error("Failed to set local FFmpeg path.");
+  }
+} else {
+  if (ffmpegStatic) {
+    ffmpeg.setFfmpegPath(ffmpegStatic); // Use ffmpeg-static for Vercel
+    console.log("FFmpeg path set to:", ffmpegStatic);
+  } else {
+    console.error("FFmpeg static path is not available.");
+    throw new Error("FFmpeg static path is not available.");
   }
 }
 
@@ -36,6 +48,9 @@ console.log("Environment variables loaded:", {
 });
 
 if (!geminiApiKey || !assemblyAIApiKey) {
+  console.error(
+    "Missing API keys - GEMINI_API_KEY or ASSEMBLYAI_API_KEY not set."
+  );
   throw new Error("Missing required environment variables.");
 }
 
@@ -58,16 +73,32 @@ export async function POST(req: Request) {
 
   try {
     const contentType = req.headers.get("content-type");
+    console.log("Request Content-Type:", contentType);
     if (contentType?.includes("multipart/form-data")) {
       const formData = await req.formData();
       attachment = formData.get("attachment") as File;
-      prompt = (formData.get("prompt") as string) || null; // Get the prompt from formData
+      prompt = (formData.get("prompt") as string) || null;
+      console.log(
+        "FormData - Attachment:",
+        attachment?.name,
+        "Prompt:",
+        prompt
+      );
     } else {
       body = await req.json();
       text = body?.text?.trim() ?? null;
+      console.log("JSON Body - Text:", text);
     }
   } catch (error) {
-    console.error("Failed to parse request body:", (error as Error).message);
+    if (error instanceof Error) {
+      console.error(
+        "Failed to parse request body:",
+        error.message,
+        error.stack
+      );
+    } else {
+      console.error("Failed to parse request body:", error);
+    }
     return NextResponse.json(
       { error: "Invalid request body." },
       { status: 400 }
@@ -94,70 +125,56 @@ export async function POST(req: Request) {
 
     if (attachment) {
       const mimeType = attachment.type;
-      const filename = attachment.name || "attachment";
       const buffer = Buffer.from(await attachment.arrayBuffer());
-      let tempInputPath: string | null = null;
-
-      if (mimeType === "application/pdf" || mimeType === "audio/webm") {
-        tempInputPath = path.join(
-          process.cwd(),
-          "tmp",
-          `${filename}_${Date.now()}.${
-            mimeType.includes("webm") ? "webm" : "pdf"
-          }`
-        );
-        await fs.promises.mkdir(path.dirname(tempInputPath), {
-          recursive: true,
-        });
-        await fs.promises.writeFile(tempInputPath, buffer);
-      }
+      console.log(
+        `Processing attachment, MIME type: ${mimeType}, Buffer size: ${buffer.length} bytes`
+      );
 
       if (mimeType === "audio/webm") {
         try {
-          const tempOutputPath = path.join(
-            process.cwd(),
-            "tmp",
-            `${filename}_${Date.now()}.flac`
-          );
-          await convertWebmToFlac(tempInputPath!, tempOutputPath);
-          additionalContent = await transcribeAudio(tempOutputPath, assemblyAI);
-
-          unlink(tempInputPath!, (err) => {
-            if (err) console.error("Failed to delete tempInputPath:", err);
-          });
-          unlink(tempOutputPath, (err) => {
-            if (err) console.error("Failed to delete tempOutputPath:", err);
-          });
+          console.log("Starting audio processing...");
+          const flacBuffer = await convertWebmToFlac(buffer);
+          console.log("Audio converted to FLAC, starting transcription...");
+          additionalContent = await transcribeAudio(flacBuffer, assemblyAI);
+          console.log("Audio transcription completed:", additionalContent);
         } catch (error) {
-          unlink(tempInputPath!, (err) => {
-            if (err) console.error("Failed to delete tempInputPath:", err);
-          });
-          if (
-            error instanceof Error &&
-            error.message.includes("Cannot find ffmpeg")
-          ) {
-            return NextResponse.json(
-              { error: "FFmpeg is not installed on the server." },
-              { status: 500 }
+          if (error instanceof Error) {
+            console.error(
+              "Audio processing error:",
+              error.message,
+              error.stack
             );
+          } else {
+            console.error("Audio processing error:", error);
           }
           return NextResponse.json(
-            { error: "Failed to transcribe voice message." },
+            {
+              error:
+                "Failed to transcribe voice message: " +
+                (error as Error).message,
+            },
             { status: 500 }
           );
         }
       } else if (mimeType === "application/pdf") {
         try {
-          additionalContent = await extractTextFromPDF(tempInputPath!);
-          unlink(tempInputPath!, (err) => {
-            if (err) console.error("Failed to delete tempInputPath:", err);
-          });
+          console.log("Starting PDF processing...");
+          additionalContent = await extractTextFromPDF(buffer);
+          console.log(
+            "PDF text extraction completed:",
+            additionalContent.slice(0, 50) + "..."
+          );
         } catch (error) {
-          unlink(tempInputPath!, (err) => {
-            if (err) console.error("Failed to delete tempInputPath:", err);
-          });
+          if (error instanceof Error) {
+            console.error("PDF extraction error:", error.message, error.stack);
+          } else {
+            console.error("PDF extraction error:", error);
+          }
           return NextResponse.json(
-            { error: "Failed to extract text from PDF." },
+            {
+              error:
+                "Failed to extract text from PDF: " + (error as Error).message,
+            },
             { status: 500 }
           );
         }
@@ -166,29 +183,28 @@ export async function POST(req: Request) {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       ) {
         try {
+          console.log("Starting DOCX processing...");
           additionalContent = await extractTextFromDocx(buffer);
-          if (additionalContent) {
-            console.log(
-              `Successfully extracted text from DOCX: ${additionalContent.slice(
-                0,
-                50
-              )}...`
-            );
-          } else {
-            console.log("No content extracted from DOCX.");
-          }
+          console.log(
+            "DOCX text extraction completed:",
+            additionalContent.slice(0, 50) + "..."
+          );
         } catch (error) {
+          if (error instanceof Error) {
+            console.error("DOCX extraction error:", error.message, error.stack);
+          } else {
+            console.error("DOCX extraction error:", error);
+          }
           return NextResponse.json(
-            { error: "Failed to extract text from DOCX." },
+            {
+              error:
+                "Failed to extract text from DOCX: " + (error as Error).message,
+            },
             { status: 500 }
           );
         }
       } else {
-        if (tempInputPath) {
-          unlink(tempInputPath, (err) => {
-            if (err) console.error("Failed to delete tempInputPath:", err);
-          });
-        }
+        console.error("Unsupported file type:", mimeType);
         return NextResponse.json(
           { error: "Only audio, PDF, and DOCX files are supported." },
           { status: 400 }
@@ -200,14 +216,21 @@ export async function POST(req: Request) {
           ? `${prompt}\n\n${additionalContent}`
           : additionalContent;
         messageHistory.push({ role: "user", content: fullPrompt });
+        console.log(
+          "Sending to Gemini with prompt:",
+          fullPrompt.slice(0, 50) + "..."
+        );
         const reply = await getGeminiCompletion(messageHistory, model);
         messageHistory.push({ role: "assistant", content: reply });
+        console.log("Gemini reply:", reply);
         return NextResponse.json({ reply }, { status: 200 });
       }
     } else if (text) {
       messageHistory.push({ role: "user", content: text });
+      console.log("Sending text to Gemini:", text.slice(0, 50) + "...");
       const reply = await getGeminiCompletion(messageHistory, model);
       messageHistory.push({ role: "assistant", content: reply });
+      console.log("Gemini reply:", reply);
       return NextResponse.json({ reply }, { status: 200 });
     } else {
       console.error("No text or attachment in request.");
@@ -218,16 +241,12 @@ export async function POST(req: Request) {
     }
   } catch (error) {
     if (error instanceof Error) {
-      console.error("Error:", error.message, error.stack);
+      console.error("Error in /api/talk:", error.message, error.stack);
     } else {
-      console.error("Error:", error);
+      console.error("Error in /api/talk:", error);
     }
     return NextResponse.json(
-      {
-        error:
-          "Internal server error: " +
-          (error instanceof Error ? error.message : "Unknown error"),
-      },
+      { error: "Internal server error: " + (error as Error).message },
       { status: 500 }
     );
   }
