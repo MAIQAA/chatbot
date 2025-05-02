@@ -1,9 +1,0 @@
-{
-  "functions": {
-    "api/talk.ts": {
-      "maxDuration": 60,
-      "runtime": "nodejs18.x",
-      "layers": ["arn:aws:lambda:us-east-1:848146462093:layer:ffmpeg:8"]
-    }
-  }
-}
