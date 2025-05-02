@@ -11,12 +11,13 @@ import {
   getGeminiCompletion,
 } from "../../lib/utils";
 
+
 // Set FFmpeg path based on environment
 if (process.env.NODE_ENV === "development") {
   try {
     const localFfmpegPath =
       "C:\\Users\\ammad\\AppData\\Local\\ffmpeg\\bin\\ffmpeg.exe";
-    ffmpeg.setFfmpegPath(localFfmpegPath); // Corrected method name
+   
     console.log(
       "FFmpeg path set to local path for development:",
       localFfmpegPath

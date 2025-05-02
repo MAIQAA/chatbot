@@ -5,6 +5,8 @@ import { Readable } from "stream";
 import mammoth from "mammoth";
 import { AssemblyAI } from "assemblyai";
 import PDFParser from "pdf2json";
+import fs from "fs/promises";
+import path from "path";
 
 interface PDFTextItem {
   R: { T: string }[];
@@ -40,61 +42,64 @@ export async function fetchFileToTemp(url: string): Promise<Buffer> {
 export async function convertWebmToFlac(webmBuffer: Buffer): Promise<Buffer> {
   console.log("Starting WebM to FLAC conversion...");
   console.log("WebM Buffer size:", webmBuffer.length, "bytes");
-  try {
-    return await new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      const readable = Readable.from(webmBuffer);
 
-      const ffmpegProcess = ffmpeg(readable)
+  const tempInput = path.join("/tmp", `input-${Date.now()}.webm`);
+  const tempOutput = path.join("/tmp", `output-${Date.now()}.flac`);
+
+  try {
+    // Write input buffer to temporary file
+    await fs.writeFile(tempInput, webmBuffer);
+
+    // Run FFmpeg with optimized settings
+    return await new Promise((resolve, reject) => {
+      ffmpeg(tempInput)
         .inputFormat("webm")
         .audioCodec("flac")
+        .audioChannels(1) // Mono audio to reduce processing
+        .audioFrequency(16000) // Lower sample rate
+        .outputOptions("-compression_level 8") // Optimize FLAC compression
         .toFormat("flac")
+        .save(tempOutput)
         .on("start", (commandLine: string) => {
-          console.log("FFmpeg process started with command:", commandLine);
+          console.log("FFmpeg command:", commandLine);
         })
         .on("stderr", (line: string) => {
-          const match = line.match(/frame=.*time=.*bitrate=.*speed=([\d.]+)/);
-          if (match) {
-            console.log("FFmpeg conversion progress:", line.trim());
-          }
+          console.log("FFmpeg stderr:", line.trim());
         })
         .on("error", (err: Error) => {
           console.error("FFmpeg error:", err.message, err.stack);
-          reject(new Error(`FFmpeg conversion failed: ${err.message}`));
-        })
-        .on("end", () => {
-          console.log("FFmpeg conversion finished");
-          if (chunks.length === 0) {
-            reject(new Error("No data received from FFmpeg conversion."));
+          if (err.message.includes("ffmpeg not found")) {
+            reject(new Error("FFmpeg binary not found in environment."));
           } else {
-            resolve(Buffer.concat(chunks));
+            reject(new Error(`FFmpeg conversion failed: ${err.message}`));
+          }
+        })
+        .on("end", async () => {
+          console.log("FFmpeg conversion finished");
+          try {
+            const flacBuffer = await fs.readFile(tempOutput);
+            if (flacBuffer.length === 0) {
+              reject(new Error("No data in converted FLAC file."));
+            } else {
+              console.log("FLAC buffer size:", flacBuffer.length, "bytes");
+              resolve(flacBuffer);
+            }
+          } catch (readError) {
+            reject(
+              new Error(
+                `Failed to read FLAC file: ${(readError as Error).message}`
+              )
+            );
           }
         });
-
-      const stream = ffmpegProcess.pipe();
-      stream.on("data", (chunk: Buffer) => {
-        console.log(
-          "Received FFmpeg stream data chunk:",
-          chunk.length,
-          "bytes"
-        );
-        chunks.push(chunk);
-      });
-      stream.on("error", (err: Error) => {
-        console.error("Stream error:", err.message, err.stack);
-        reject(new Error(`Stream error: ${err.message}`));
-      });
-      stream.on("end", () => {
-        console.log("FFmpeg stream ended");
-      });
     });
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("convertWebmToFlac Error:", error.message, error.stack);
-    } else {
-      console.error("convertWebmToFlac Error:", error);
-    }
+    console.error("convertWebmToFlac Error:", error);
     throw error;
+  } finally {
+    // Clean up temporary files
+    await fs.unlink(tempInput).catch(() => {});
+    await fs.unlink(tempOutput).catch(() => {});
   }
 }
 
@@ -199,31 +204,22 @@ export async function transcribeAudio(
   flacBuffer: Buffer,
   assemblyAI: AssemblyAI
 ): Promise<string> {
-  console.log("Starting audio transcription with AssemblyAI...");
+  console.log("Starting audio transcription...");
   console.log("FLAC Buffer size:", flacBuffer.length, "bytes");
   try {
     const base64Audio = flacBuffer.toString("base64");
-    console.log("Sending audio to AssemblyAI...");
     const transcription = await assemblyAI.transcripts.transcribe({
       audio: `data:audio/flac;base64,${base64Audio}`,
     });
-    console.log("AssemblyAI transcription response:", transcription);
     if (transcription.status === "error") {
       console.error("Transcription failed:", transcription.error);
       throw new Error(`Transcription failed: ${transcription.error}`);
     }
     const text = transcription.text || "";
-    if (!text) {
-      console.warn("No transcription text received from AssemblyAI.");
-    }
-    console.log("Transcription result:", text);
+    console.log("Transcription result:", text || "No text transcribed");
     return text;
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("AssemblyAI Error:", error.message, error.stack);
-    } else {
-      console.error("AssemblyAI Error:", error);
-    }
+    console.error("Transcription error:", error);
     throw new Error(`Failed to transcribe audio: ${(error as Error).message}`);
   }
 }

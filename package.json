@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@google-cloud/vision": "^5.1.0",
     "@google/generative-ai": "^0.24.0",
     "@langchain/community": "^0.2.0",
