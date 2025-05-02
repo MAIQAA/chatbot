@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import ffmpeg from "fluent-ffmpeg";
-import { Readable } from "stream";
 import mammoth from "mammoth";
 import { AssemblyAI } from "assemblyai";
 import PDFParser from "pdf2json";
@@ -30,11 +29,7 @@ export async function fetchFileToTemp(url: string): Promise<Buffer> {
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("Fetch File Error:", error.message, error.stack);
-    } else {
-      console.error("Fetch File Error:", error);
-    }
+    console.error("Fetch File Error:", error);
     throw error;
   }
 }
@@ -55,9 +50,9 @@ export async function convertWebmToFlac(webmBuffer: Buffer): Promise<Buffer> {
       ffmpeg(tempInput)
         .inputFormat("webm")
         .audioCodec("flac")
-        .audioChannels(1) // Mono audio to reduce processing
-        .audioFrequency(16000) // Lower sample rate
-        .outputOptions("-compression_level 8") // Optimize FLAC compression
+        .audioChannels(1)
+        .audioFrequency(16000)
+        .outputOptions("-compression_level 8")
         .toFormat("flac")
         .save(tempOutput)
         .on("start", (commandLine: string) => {
@@ -97,78 +92,58 @@ export async function convertWebmToFlac(webmBuffer: Buffer): Promise<Buffer> {
     console.error("convertWebmToFlac Error:", error);
     throw error;
   } finally {
-    // Clean up temporary files
     await fs.unlink(tempInput).catch(() => {});
     await fs.unlink(tempOutput).catch(() => {});
   }
 }
 
 export async function extractTextFromPDF(pdfBuffer: Buffer): Promise<string> {
-  console.log("Starting PDF text extraction with pdf2json...");
+  console.log("Starting PDF text extraction...");
   console.log("PDF Buffer size:", pdfBuffer.length, "bytes");
-
   try {
     if (!pdfBuffer || pdfBuffer.length === 0) {
-      throw new Error("Invalid or empty PDF buffer provided.");
+      throw new Error("Invalid or empty PDF buffer.");
     }
-
     return new Promise((resolve, reject) => {
       const pdfParser = new PDFParser();
-
       pdfParser.on(
         "pdfParser_dataError",
         (errData: Record<"parserError", Error>) => {
-          console.error("pdf2json parsing error:", errData.parserError);
-          reject(new Error(`PDF parsing error: ${errData.parserError}`));
+          console.error("PDF parsing error:", errData.parserError);
+          reject(
+            new Error(`PDF parsing error: ${errData.parserError.message}`)
+          );
         }
       );
-
       pdfParser.on("pdfParser_dataReady", (pdfData: any) => {
-        console.log("Raw pdfData:", JSON.stringify(pdfData, null, 2)); // Log raw data for debugging
         const pages = pdfData.Pages;
-
         if (!pages || pages.length === 0) {
-          console.warn("No Pages in pdfData:", pdfData);
+          console.warn("No pages in PDF data.");
           reject(new Error("PDF structure not recognized or empty."));
           return;
         }
-
         let fullText = "";
         for (const page of pages) {
-          const pageText = page.Texts.map((textItem: PDFTextItem) => {
-            if (textItem.R && textItem.R.length > 0 && textItem.R[0].T) {
-              return decodeURIComponent(textItem.R[0].T);
-            }
-            return "";
-          }).join(" ");
+          const pageText = page.Texts.map((textItem: PDFTextItem) =>
+            textItem.R?.[0]?.T ? decodeURIComponent(textItem.R[0].T) : ""
+          ).join(" ");
           fullText += pageText + "\n";
         }
-
         const text = fullText.trim();
         if (!text) {
-          console.warn(
-            "No text extracted from PDF - it might be scanned or empty."
-          );
+          console.warn("No text extracted from PDF.");
           reject(new Error("No text extracted from PDF."));
         } else {
           console.log("PDF text extracted:", text.slice(0, 50) + "...");
           resolve(text);
         }
       });
-
       pdfParser.parseBuffer(pdfBuffer);
     });
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("pdf2json Error:", error.message, error.stack);
-      if (error.message.includes("bad XRef entry")) {
-        console.warn("PDF may be corrupted. Please try a different file.");
-        throw new Error(
-          "PDF is corrupted or unsupported. Please upload a valid file."
-        );
-      }
-    } else {
-      console.error("pdf2json Error:", error);
+    console.error("PDF extraction error:", error);
+    if ((error as Error).message.includes("bad XRef entry")) {
+      throw new Error("PDF is corrupted or unsupported.");
     }
     throw new Error(
       `Failed to extract text from PDF: ${(error as Error).message}`
@@ -189,11 +164,7 @@ export async function extractTextFromDocx(buffer: Buffer): Promise<string> {
     console.log("DOCX text extracted:", text.slice(0, 50) + "...");
     return text;
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("DOCX Extraction Error:", error.message, error.stack);
-    } else {
-      console.error("DOCX Extraction Error:", error);
-    }
+    console.error("DOCX extraction error:", error);
     throw new Error(
       `Failed to extract text from DOCX: ${(error as Error).message}`
     );
@@ -252,17 +223,12 @@ export async function getGeminiCompletion(
         temperature: 0.7,
       },
     });
-
     const reply = result.response.text().trim();
     if (!reply) throw new Error("No content in Gemini response.");
-    console.log("Gemini Response:", reply);
+    console.log("Gemini response:", reply.slice(0, 50) + "...");
     return reply;
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("Gemini API Error:", error.message, error.stack);
-    } else {
-      console.error("Gemini API Error:", error);
-    }
+    console.error("Gemini API error:", error);
     return "Sorry, I encountered an error while processing your request.";
   }
 }

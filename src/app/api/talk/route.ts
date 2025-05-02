@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { execSync } from "child_process";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import ffmpeg from "fluent-ffmpeg";
 import { AssemblyAI } from "assemblyai";
@@ -17,7 +18,7 @@ if (process.env.NODE_ENV === "development") {
   );
   console.log("FFmpeg set to local path for development");
 } else {
-  ffmpeg.setFfmpegPath("/opt/ffmpeg"); 
+  ffmpeg.setFfmpegPath("/opt/ffmpeg");
   console.log("FFmpeg set to: /opt/ffmpeg");
 }
 
@@ -44,7 +45,19 @@ const assemblyAI = new AssemblyAI({ apiKey: assemblyAIApiKey });
 const allMessageHistory: {
   [key: string]: { role: string; content: string }[];
 } = {};
-const sessionId = "default-session"; // Simplified for single-session use
+const sessionId = "default-session";
+
+export async function GET() {
+  try {
+    const ffmpegVersion = execSync("/opt/ffmpeg -version").toString();
+    return NextResponse.json({ ffmpegVersion, status: "FFmpeg available" });
+  } catch (error) {
+    return NextResponse.json(
+      { error: "FFmpeg not available", details: String(error) },
+      { status: 500 }
+    );
+  }
+}
 
 export async function POST(req: Request) {
   console.log(`[${new Date().toISOString()}] POST /api/talk`);
@@ -72,15 +85,7 @@ export async function POST(req: Request) {
       console.log("JSON Body - Text:", text);
     }
   } catch (error) {
-    if (error instanceof Error) {
-      console.error(
-        "Failed to parse request body:",
-        error.message,
-        error.stack
-      );
-    } else {
-      console.error("Failed to parse request body:", error);
-    }
+    console.error("Failed to parse request body:", error);
     return NextResponse.json(
       { error: "Invalid request body." },
       { status: 400 }
@@ -116,24 +121,19 @@ export async function POST(req: Request) {
         try {
           console.log("Starting audio processing...");
           const flacBuffer = await convertWebmToFlac(buffer);
-          console.log("Audio converted to FLAC, starting transcription...");
+          console.log("FLAC buffer size:", flacBuffer.length, "bytes");
           additionalContent = await transcribeAudio(flacBuffer, assemblyAI);
           console.log("Audio transcription completed:", additionalContent);
         } catch (error) {
-          if (error instanceof Error) {
-            console.error(
-              "Audio processing error:",
-              error.message,
-              error.stack
-            );
-          } else {
-            console.error("Audio processing error:", error);
-          }
+          console.error("Audio processing error:", {
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          });
           return NextResponse.json(
             {
               error:
                 "Failed to transcribe voice message: " +
-                (error as Error).message,
+                (error instanceof Error ? error.message : String(error)),
             },
             { status: 500 }
           );
@@ -147,15 +147,12 @@ export async function POST(req: Request) {
             additionalContent.slice(0, 50) + "..."
           );
         } catch (error) {
-          if (error instanceof Error) {
-            console.error("PDF extraction error:", error.message, error.stack);
-          } else {
-            console.error("PDF extraction error:", error);
-          }
+          console.error("PDF extraction error:", error);
           return NextResponse.json(
             {
               error:
-                "Failed to extract text from PDF: " + (error as Error).message,
+                "Failed to extract text from PDF: " +
+                (error instanceof Error ? error.message : String(error)),
             },
             { status: 500 }
           );
@@ -172,15 +169,12 @@ export async function POST(req: Request) {
             additionalContent.slice(0, 50) + "..."
           );
         } catch (error) {
-          if (error instanceof Error) {
-            console.error("DOCX extraction error:", error.message, error.stack);
-          } else {
-            console.error("DOCX extraction error:", error);
-          }
+          console.error("DOCX extraction error:", error);
           return NextResponse.json(
             {
               error:
-                "Failed to extract text from DOCX: " + (error as Error).message,
+                "Failed to extract text from DOCX: " +
+                (error instanceof Error ? error.message : String(error)),
             },
             { status: 500 }
           );
@@ -188,7 +182,7 @@ export async function POST(req: Request) {
       } else {
         console.error("Unsupported file type:", mimeType);
         return NextResponse.json(
-          { error: "Only audio, PDF, and DOCX files are supported." },
+          { error: "Only audio (WebM), PDF, and DOCX files are supported." },
           { status: 400 }
         );
       }
@@ -222,13 +216,13 @@ export async function POST(req: Request) {
       );
     }
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("Error in /api/talk:", error.message, error.stack);
-    } else {
-      console.error("Error in /api/talk:", error);
-    }
+    console.error("Error in /api/talk:", error);
     return NextResponse.json(
-      { error: "Internal server error: " + (error as Error).message },
+      {
+        error:
+          "Internal server error: " +
+          (error instanceof Error ? error.message : String(error)),
+      },
       { status: 500 }
     );
   }
