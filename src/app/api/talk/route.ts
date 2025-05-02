@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import ffmpeg from "fluent-ffmpeg";
-import ffmpegStatic from "ffmpeg-static";
 import { AssemblyAI } from "assemblyai";
 import {
   convertWebmToFlac,
@@ -11,33 +10,15 @@ import {
   getGeminiCompletion,
 } from "../../lib/utils";
 
-
 // Set FFmpeg path based on environment
 if (process.env.NODE_ENV === "development") {
-  try {
-    const localFfmpegPath =
-      "C:\\Users\\ammad\\AppData\\Local\\ffmpeg\\bin\\ffmpeg.exe";
-   
-    console.log(
-      "FFmpeg path set to local path for development:",
-      localFfmpegPath
-    );
-  } catch (error) {
-    console.error(
-      "Failed to set local FFmpeg path:",
-      (error as Error).message,
-      error instanceof Error ? error.stack : "No stack trace available"
-    );
-    throw new Error("Failed to set local FFmpeg path.");
-  }
+  ffmpeg.setFfmpegPath(
+    "C:\\Users\\ammad\\AppData\\Local\\ffmpeg\\bin\\ffmpeg.exe"
+  );
+  console.log("FFmpeg set to local path for development");
 } else {
-  if (ffmpegStatic) {
-    ffmpeg.setFfmpegPath(ffmpegStatic); // Use ffmpeg-static for Vercel
-    console.log("FFmpeg path set to:", ffmpegStatic);
-  } else {
-    console.error("FFmpeg static path is not available.");
-    throw new Error("FFmpeg static path is not available.");
-  }
+  ffmpeg.setFfmpegPath("/opt/ffmpeg"); 
+  console.log("FFmpeg set to: /opt/ffmpeg");
 }
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
