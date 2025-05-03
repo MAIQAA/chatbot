@@ -1,27 +1,12 @@
 import { NextResponse } from "next/server";
-import { execSync } from "child_process";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import ffmpeg from "fluent-ffmpeg";
 import { AssemblyAI } from "assemblyai";
-import fs from "fs";
 import {
-  convertWebmToFlac,
   extractTextFromPDF,
   extractTextFromDocx,
   transcribeAudio,
   getGeminiCompletion,
 } from "../../lib/utils";
-
-// Set FFmpeg path based on environment
-if (process.env.NODE_ENV === "development") {
-  ffmpeg.setFfmpegPath(
-    "C:\\Users\\ammad\\AppData\\Local\\ffmpeg\\bin\\ffmpeg.exe"
-  );
-  console.log("FFmpeg set to local path for development");
-} else {
-  ffmpeg.setFfmpegPath("/opt/ffmpeg");
-  console.log("FFmpeg set to: /opt/ffmpeg");
-}
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const assemblyAIApiKey = process.env.ASSEMBLYAI_API_KEY;
@@ -40,25 +25,12 @@ if (!geminiApiKey || !assemblyAIApiKey) {
 
 const genAI = new GoogleGenerativeAI(geminiApiKey);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
 const assemblyAI = new AssemblyAI({ apiKey: assemblyAIApiKey });
 
 const allMessageHistory: {
   [key: string]: { role: string; content: string }[];
 } = {};
 const sessionId = "default-session";
-
-export async function GET() {
-  try {
-    const ffmpegVersion = execSync("/opt/ffmpeg -version").toString();
-    return NextResponse.json({ ffmpegVersion, status: "FFmpeg available" });
-  } catch (error) {
-    return NextResponse.json(
-      { error: "FFmpeg not available", details: String(error) },
-      { status: 500 }
-    );
-  }
-}
 
 export async function POST(req: Request) {
   console.log(`[${new Date().toISOString()}] POST /api/talk`);
@@ -80,6 +52,13 @@ export async function POST(req: Request) {
         "Prompt:",
         prompt
       );
+      if (!attachment) {
+        console.error("No attachment in FormData");
+        return NextResponse.json(
+          { error: "Missing attachment in FormData" },
+          { status: 400 }
+        );
+      }
     } else {
       body = await req.json();
       text = body?.text?.trim() ?? null;
@@ -88,7 +67,11 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("Failed to parse request body:", error);
     return NextResponse.json(
-      { error: "Invalid request body." },
+      {
+        error:
+          "Invalid request body: " +
+          (error instanceof Error ? error.message : String(error)),
+      },
       { status: 400 }
     );
   }
@@ -118,18 +101,15 @@ export async function POST(req: Request) {
         `Processing attachment, MIME type: ${mimeType}, Buffer size: ${buffer.length} bytes`
       );
 
-      if (mimeType === "audio/webm") {
+      if (mimeType === "audio/webm" || mimeType === "audio/flac") {
         try {
-          console.log("Starting audio processing...");
-          const tempInputPath = "./temp_input.webm";
-          const tempOutputPath = "./temp_output.flac";
-          await fs.promises.writeFile(tempInputPath, buffer);
-          await convertWebmToFlac(tempInputPath, tempOutputPath);
-          const flacBuffer = await fs.promises.readFile(tempOutputPath);
-          await fs.promises.unlink(tempInputPath);
-          await fs.promises.unlink(tempOutputPath);
-          console.log("FLAC buffer size:", flacBuffer.length, "bytes");
-          additionalContent = await transcribeAudio(flacBuffer, assemblyAI);
+          console.log("Starting audio transcription...");
+          additionalContent = (await Promise.race([
+            transcribeAudio(buffer, assemblyAI, mimeType),
+            new Promise<string>((_, reject) =>
+              setTimeout(() => reject(new Error("Transcription timeout")), 8000)
+            ),
+          ])) as string;
           console.log("Audio transcription completed:", additionalContent);
         } catch (error) {
           console.error("Audio processing error:", {
@@ -189,7 +169,10 @@ export async function POST(req: Request) {
       } else {
         console.error("Unsupported file type:", mimeType);
         return NextResponse.json(
-          { error: "Only audio (WebM), PDF, and DOCX files are supported." },
+          {
+            error:
+              "Only audio (WebM, FLAC), PDF, and DOCX files are supported.",
+          },
           { status: 400 }
         );
       }
@@ -223,7 +206,10 @@ export async function POST(req: Request) {
       );
     }
   } catch (error) {
-    console.error("Error in /api/talk:", error);
+    console.error("Error in /api/talk:", {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return NextResponse.json(
       {
         error:

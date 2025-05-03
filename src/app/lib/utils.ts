@@ -1,11 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import ffmpeg from "fluent-ffmpeg";
 import mammoth from "mammoth";
 import { AssemblyAI } from "assemblyai";
 import PDFParser from "pdf2json";
-import fs from "fs/promises";
-import path from "path";
 
 interface PDFTextItem {
   R: { T: string }[];
@@ -19,7 +16,7 @@ interface PDFData {
   Pages?: PDFPage[];
 }
 
-export async function fetchFileToTemp(url: string, tempPath: string | null = null) {
+export async function fetchFileToTemp(url: string): Promise<Buffer> {
   console.log("Fetching file:", url);
   try {
     const response = await fetch(url);
@@ -28,40 +25,13 @@ export async function fetchFileToTemp(url: string, tempPath: string | null = nul
     }
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-
-    if (tempPath) {
-      await fs.mkdir("/tmp", { recursive: true }).catch((err) => {
-        if (err.code !== "EEXIST") throw err;
-      });
-      await fs.writeFile(tempPath, buffer);
-    }
-
+    console.log("Fetched buffer size:", buffer.length, "bytes");
     return buffer;
   } catch (error) {
-    console.error("Fetch File Error:", (error as Error).message);
-    throw error;
+    console.error("Fetch File Error:", error);
+    throw new Error(`Failed to fetch file: ${(error as Error).message}`);
   }
 }
-
-export async function convertWebmToFlac(inputPath: string, outputPath: string) {
-  console.log("Converting WebM to FLAC:", inputPath);
-  return new Promise((resolve, reject) => {
-    ffmpeg(inputPath)
-      .output(outputPath)
-      .audioCodec("flac")
-      .audioChannels(1)
-      .audioFrequency(16000)
-      .on("end", () => {
-        console.log("Audio conversion to FLAC completed");
-        resolve(outputPath);
-      })
-      .on("error", (err) => {
-        reject(new Error(`FFmpeg Error: ${err.message}`));
-      })
-      .run();
-  });
-}
-
 
 export async function extractTextFromPDF(pdfBuffer: Buffer): Promise<string> {
   console.log("Starting PDF text extraction...");
@@ -138,15 +108,21 @@ export async function extractTextFromDocx(buffer: Buffer): Promise<string> {
 }
 
 export async function transcribeAudio(
-  flacBuffer: Buffer,
-  assemblyAI: AssemblyAI
+  buffer: Buffer,
+  assemblyAI: AssemblyAI,
+  mimeType: string
 ): Promise<string> {
   console.log("Starting audio transcription...");
-  console.log("FLAC Buffer size:", flacBuffer.length, "bytes");
+  console.log("Buffer size:", buffer.length, "bytes", "MIME type:", mimeType);
   try {
-    const base64Audio = flacBuffer.toString("base64");
+    if (!buffer || buffer.length === 0) {
+      throw new Error("Invalid or empty audio buffer");
+    }
+    const base64Audio = buffer.toString("base64");
+    console.log("Base64 audio length:", base64Audio.length);
+    const audioFormat = mimeType === "audio/webm" ? "webm" : "flac";
     const transcription = await assemblyAI.transcripts.transcribe({
-      audio: `data:audio/flac;base64,${base64Audio}`,
+      audio: `data:audio/${audioFormat};base64,${base64Audio}`,
     });
     if (transcription.status === "error") {
       console.error("Transcription failed:", transcription.error);
@@ -156,7 +132,10 @@ export async function transcribeAudio(
     console.log("Transcription result:", text || "No text transcribed");
     return text;
   } catch (error) {
-    console.error("Transcription error:", error);
+    console.error("Transcription error:", {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     throw new Error(`Failed to transcribe audio: ${(error as Error).message}`);
   }
 }
@@ -194,7 +173,10 @@ export async function getGeminiCompletion(
     console.log("Gemini response:", reply.slice(0, 50) + "...");
     return reply;
   } catch (error) {
-    console.error("Gemini API error:", error);
+    console.error("Gemini API error:", {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return "Sorry, I encountered an error while processing your request.";
   }
 }
