@@ -3,6 +3,7 @@ import { execSync } from "child_process";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import ffmpeg from "fluent-ffmpeg";
 import { AssemblyAI } from "assemblyai";
+import fs from "fs";
 import {
   convertWebmToFlac,
   extractTextFromPDF,
@@ -120,7 +121,13 @@ export async function POST(req: Request) {
       if (mimeType === "audio/webm") {
         try {
           console.log("Starting audio processing...");
-          const flacBuffer = await convertWebmToFlac(buffer);
+          const tempInputPath = "./temp_input.webm";
+          const tempOutputPath = "./temp_output.flac";
+          await fs.promises.writeFile(tempInputPath, buffer);
+          await convertWebmToFlac(tempInputPath, tempOutputPath);
+          const flacBuffer = await fs.promises.readFile(tempOutputPath);
+          await fs.promises.unlink(tempInputPath);
+          await fs.promises.unlink(tempOutputPath);
           console.log("FLAC buffer size:", flacBuffer.length, "bytes");
           additionalContent = await transcribeAudio(flacBuffer, assemblyAI);
           console.log("Audio transcription completed:", additionalContent);

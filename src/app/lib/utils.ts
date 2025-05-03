@@ -19,7 +19,7 @@ interface PDFData {
   Pages?: PDFPage[];
 }
 
-export async function fetchFileToTemp(url: string): Promise<Buffer> {
+export async function fetchFileToTemp(url: string, tempPath: string | null = null) {
   console.log("Fetching file:", url);
   try {
     const response = await fetch(url);
@@ -27,75 +27,41 @@ export async function fetchFileToTemp(url: string): Promise<Buffer> {
       throw new Error(`Failed to fetch file: ${response.statusText}`);
     }
     const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    const buffer = Buffer.from(arrayBuffer);
+
+    if (tempPath) {
+      await fs.mkdir("/tmp", { recursive: true }).catch((err) => {
+        if (err.code !== "EEXIST") throw err;
+      });
+      await fs.writeFile(tempPath, buffer);
+    }
+
+    return buffer;
   } catch (error) {
-    console.error("Fetch File Error:", error);
+    console.error("Fetch File Error:", (error as Error).message);
     throw error;
   }
 }
 
-export async function convertWebmToFlac(webmBuffer: Buffer): Promise<Buffer> {
-  console.log("Starting WebM to FLAC conversion...");
-  console.log("WebM Buffer size:", webmBuffer.length, "bytes");
-
-  const tempInput = path.join("/tmp", `input-${Date.now()}.webm`);
-  const tempOutput = path.join("/tmp", `output-${Date.now()}.flac`);
-
-  try {
-    // Write input buffer to temporary file
-    await fs.writeFile(tempInput, webmBuffer);
-
-    // Run FFmpeg with optimized settings
-    return await new Promise((resolve, reject) => {
-      ffmpeg(tempInput)
-        .inputFormat("webm")
-        .audioCodec("flac")
-        .audioChannels(1)
-        .audioFrequency(16000)
-        .outputOptions("-compression_level 8")
-        .toFormat("flac")
-        .save(tempOutput)
-        .on("start", (commandLine: string) => {
-          console.log("FFmpeg command:", commandLine);
-        })
-        .on("stderr", (line: string) => {
-          console.log("FFmpeg stderr:", line.trim());
-        })
-        .on("error", (err: Error) => {
-          console.error("FFmpeg error:", err.message, err.stack);
-          if (err.message.includes("ffmpeg not found")) {
-            reject(new Error("FFmpeg binary not found in environment."));
-          } else {
-            reject(new Error(`FFmpeg conversion failed: ${err.message}`));
-          }
-        })
-        .on("end", async () => {
-          console.log("FFmpeg conversion finished");
-          try {
-            const flacBuffer = await fs.readFile(tempOutput);
-            if (flacBuffer.length === 0) {
-              reject(new Error("No data in converted FLAC file."));
-            } else {
-              console.log("FLAC buffer size:", flacBuffer.length, "bytes");
-              resolve(flacBuffer);
-            }
-          } catch (readError) {
-            reject(
-              new Error(
-                `Failed to read FLAC file: ${(readError as Error).message}`
-              )
-            );
-          }
-        });
-    });
-  } catch (error) {
-    console.error("convertWebmToFlac Error:", error);
-    throw error;
-  } finally {
-    await fs.unlink(tempInput).catch(() => {});
-    await fs.unlink(tempOutput).catch(() => {});
-  }
+export async function convertWebmToFlac(inputPath: string, outputPath: string) {
+  console.log("Converting WebM to FLAC:", inputPath);
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .output(outputPath)
+      .audioCodec("flac")
+      .audioChannels(1)
+      .audioFrequency(16000)
+      .on("end", () => {
+        console.log("Audio conversion to FLAC completed");
+        resolve(outputPath);
+      })
+      .on("error", (err) => {
+        reject(new Error(`FFmpeg Error: ${err.message}`));
+      })
+      .run();
+  });
 }
+
 
 export async function extractTextFromPDF(pdfBuffer: Buffer): Promise<string> {
   console.log("Starting PDF text extraction...");
